@@ -14,9 +14,9 @@ def retrieve(query, selected_documents=None, top_k=5):
 
     print(f"\nReceived query: {query}")
 
-    # -----------------------------------
+    # =========================================
     # Expand Query
-    # -----------------------------------
+    # =========================================
 
     expanded_queries = expand_query(query)
 
@@ -24,40 +24,67 @@ def retrieve(query, selected_documents=None, top_k=5):
 
     merged = {}
 
-    # -----------------------------------
-    # Run Retrieval for Each Query
-    # -----------------------------------
+    # =========================================
+    # Run Retrieval for Each Expanded Query
+    # =========================================
 
     for q in expanded_queries:
 
         print(f"\nRunning retrieval for: {q}")
 
-        # -----------------------------------
+        # =========================================
         # Dense Search
-        # -----------------------------------
+        # =========================================
 
         query_embedding = embed_query(q)
 
         dense_results = dense_search(
             query_embedding=query_embedding,
-            top_k=top_k
+            top_k=top_k * 3
         )
 
         print(f"Dense retrieved: {len(dense_results)}")
 
         for chunk in dense_results:
 
+            # -----------------------------------
+            # Metadata
+            # -----------------------------------
+
+            source = (
+                chunk.metadata.get("source", "")
+                if chunk.metadata else ""
+            )
+
+            # -----------------------------------
+            # Document Filtering
+            # -----------------------------------
+
+            if (
+                selected_documents
+                and len(selected_documents) > 0
+            ):
+
+                if source not in selected_documents:
+                    continue
+
+            # -----------------------------------
+            # Merge
+            # -----------------------------------
+
             if chunk.id not in merged:
+
                 chunk.retrieval_method = "dense"
+
                 merged[chunk.id] = chunk
 
-        # -----------------------------------
+        # =========================================
         # Sparse Search (BM25)
-        # -----------------------------------
+        # =========================================
 
         sparse_hits = bm25_index.search(
             query=q,
-            top_k=top_k
+            top_k=top_k * 3
         )
 
         print(f"Sparse retrieved: {len(sparse_hits)}")
@@ -83,6 +110,27 @@ def retrieve(query, selected_documents=None, top_k=5):
 
             for row in rows:
 
+                source = (
+                    row["metadata"].get("source", "")
+                    if row["metadata"] else ""
+                )
+
+                # -----------------------------------
+                # Document Filtering
+                # -----------------------------------
+
+                if (
+                    selected_documents
+                    and len(selected_documents) > 0
+                ):
+
+                    if source not in selected_documents:
+                        continue
+
+                # -----------------------------------
+                # Merge
+                # -----------------------------------
+
                 if row["id"] not in merged:
 
                     chunk = Chunk(
@@ -95,32 +143,25 @@ def retrieve(query, selected_documents=None, top_k=5):
 
                     merged[row["id"]] = chunk
 
-    # -----------------------------------
+    # =========================================
     # Final Merge
-    # -----------------------------------
+    # =========================================
 
     final_chunks = list(merged.values())
 
-    # -----------------------------------
-    # Multi-document filtering
-    # -----------------------------------
+    # =========================================
+    # Sort by Chunk Length (Better heuristic)
+    # =========================================
 
-    if selected_documents and len(selected_documents) > 0:
-
-        filtered = []
-
-        for chunk in final_chunks:
-
-            source = (
-                chunk.metadata.get("source", "")
-                if chunk.metadata else ""
-            )
-
-            if source in selected_documents:
-                filtered.append(chunk)
-
-        final_chunks = filtered
+    final_chunks.sort(
+        key=lambda x: len(x.content),
+        reverse=True
+    )
 
     print(f"\nFinal merged chunks: {len(final_chunks)}")
+
+    # =========================================
+    # Final Top-K
+    # =========================================
 
     return final_chunks[:top_k]

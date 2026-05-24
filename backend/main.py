@@ -1,6 +1,7 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
+import fastapi.middleware.cors
 
 from pydantic import BaseModel
 
@@ -40,12 +41,23 @@ app = FastAPI(
     version="1.0.0"
 )
 
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=[
+        "http://localhost:3000",
+        "http://127.0.0.1:3000",
+    ],
+    allow_credentials=True,
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
 # =========================================
 # CORS
 # =========================================
 
 app.add_middleware(
-    CORSMiddleware,
+    fastapi.middleware.cors.CORSMiddleware,
     allow_origins=["*"],
     allow_credentials=True,
     allow_methods=["*"],
@@ -112,196 +124,159 @@ async def health():
 # Streaming Chat Endpoint
 # =========================================
 
+# =========================================
+# Streaming Chat Endpoint
+# =========================================
+
+from groq import Groq
+from backend.config import settings
+
+client = Groq(
+    api_key=settings.groq_api_key
+)
+
 @app.post("/chat-stream")
 async def chat_stream(request: ChatRequest):
 
     try:
 
-        print("\nStreaming chat request received")
+        print("\n============================")
+        print("NEW CHAT REQUEST")
+        print("============================")
 
-        query = request.query.strip()
+        print("Query:", request.query)
+        print("Selected Docs:", request.selected_documents)
 
-        session_id = request.session_id
+        # =========================================
+        # Retrieve Context
+        # =========================================
 
-        # ---------------------------------
-        # Validate Query
-        # ---------------------------------
-
-        if not query:
-
-            return StreamingResponse(
-                iter(["Please enter a valid query."]),
-                media_type="text/plain"
-            )
-
-        # ---------------------------------
-        # Save User Message
-        # ---------------------------------
-
-        with get_db() as conn:
-
-            with conn.cursor() as cur:
-
-                cur.execute(
-                    """
-                    INSERT INTO chat_sessions
-                    (session_id, role, content)
-                    VALUES (%s, %s, %s)
-                    """,
-                    (
-                        session_id,
-                        "user",
-                        query
-                    )
-                )
-
-                conn.commit()
-
-        # ---------------------------------
-        # Save Memory
-        # ---------------------------------
-
-        memory.add_message(
-            session_id=session_id,
-            role="user",
-            content=query
+        retrieved_chunks = retrieve(
+            query=request.query,
+            selected_documents=request.selected_documents
         )
 
-        # ---------------------------------
-        # Build Memory Context
-        # ---------------------------------
+        print(f"Retrieved {len(retrieved_chunks)} chunks")
 
-        history_context = memory.build_context(
-            session_id
-        )
+        # =========================================
+        # Build Context
+        # =========================================
 
-        enhanced_query = f"""
-Conversation History:
-{history_context}
+        context = "\n\n".join([
+            chunk.content
+            for chunk in retrieved_chunks
+        ])
 
-Current Question:
-{query}
+        if not context.strip():
+            context = "No relevant financial documents found."
+
+        # =========================================
+        # Conversation Memory
+        # =========================================
+
+        history = memory.get_history(
+    request.session_id
+)
+
+        # =========================================
+        # Final Prompt
+        # =========================================
+
+        prompt = f"""
+You are FinRAG, an elite AI financial research assistant.
+
+You MUST answer ONLY using the provided financial context.
+
+If the answer is not present in the context:
+say:
+"I could not find that information in the uploaded documents."
+
+====================
+Conversation History
+====================
+
+{history}
+
+====================
+Financial Context
+====================
+
+{context}
+
+====================
+User Question
+====================
+
+{request.query}
+
+====================
+Answer
+====================
 """
 
-        # ---------------------------------
-        # Retrieve Chunks
-        # ---------------------------------
+        print("\nPROMPT READY\n")
 
-        chunks = retrieve(
-            enhanced_query,
-            request.selected_documents
-        )
+        # =========================================
+        # Store User Message
+        # =========================================
 
-        print(f"Retrieved {len(chunks)} chunks")
+        if request.session_id:
 
-        # ---------------------------------
-        # No Chunks
-        # ---------------------------------
-
-        if not chunks:
-
-            return StreamingResponse(
-                iter([
-                    "No relevant financial information found."
-                ]),
-                media_type="text/plain"
+            memory.add_message(
+                request.session_id,
+                "user",
+                request.query
             )
 
-        # ---------------------------------
-        # Limit Chunks
-        # ---------------------------------
-
-        chunks = chunks[:3]
-
-        # ---------------------------------
+        # =========================================
         # Streaming Generator
-        # ---------------------------------
+        # =========================================
 
-        def stream_generator():
+        async def response_generator():
 
             full_response = ""
 
-            for token in generate_stream(
-                query=query,
-                chunks=chunks
-            ):
+            try:
 
-                full_response += token
+                for token in generate_stream(
+    prompt,
+    retrieved_chunks
+):
 
-                yield token
+                    full_response += token
 
-            # ---------------------------------
-            # Save Assistant Message
-            # ---------------------------------
+                    yield token
 
-            with get_db() as conn:
+                # save assistant response
+                if request.session_id:
 
-                with conn.cursor() as cur:
-
-                    cur.execute(
-                        """
-                        INSERT INTO chat_sessions
-                        (session_id, role, content)
-                        VALUES (%s, %s, %s)
-                        """,
-                        (
-                            session_id,
-                            "assistant",
-                            full_response
-                        )
+                    memory.add_message(
+                        request.session_id,
+                        "assistant",
+                        full_response
                     )
 
-                    conn.commit()
+            except Exception as e:
 
-            # ---------------------------------
-            # Save Memory
-            # ---------------------------------
+                print("Streaming Error:", e)
 
-            memory.add_message(
-                session_id=session_id,
-                role="assistant",
-                content=full_response
-            )
-
-            # ---------------------------------
-            # Stream Sources
-            # ---------------------------------
-
-            yield "\n\n[SOURCES]\n"
-
-            used_sources = []
-
-            for chunk in chunks:
-
-                source = (
-                    chunk.metadata.get(
-                        "source",
-                        "Unknown"
-                    )
-                    if chunk.metadata
-                    else "Unknown"
-                )
-
-                if source not in used_sources:
-
-                    used_sources.append(source)
-
-                    yield f"{source}\n"
+                yield f"\nError: {str(e)}"
 
         return StreamingResponse(
-            stream_generator(),
+            response_generator(),
             media_type="text/plain"
         )
 
     except Exception as e:
 
-        print(f"Streaming error: {e}")
+        print("CHAT ERROR:", e)
 
         return StreamingResponse(
-            iter([f"Error: {str(e)}"]),
+            iter([
+                f"Server Error: {str(e)}"
+            ]),
             media_type="text/plain"
         )
-
 # =========================================
 # Chat History Endpoint
 # =========================================

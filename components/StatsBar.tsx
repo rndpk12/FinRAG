@@ -1,18 +1,19 @@
 'use client';
 
 import { useState, useEffect } from 'react';
+const API = process.env.NEXT_PUBLIC_API_URL;
 
 export default function StatsBar() {
   const [chunks, setChunks] = useState<number | null>(null);
 
   useEffect(() => {
-    fetch('http://localhost:8000/stats')
+    fetch('${API}/stats')
       .then(r => r.json())
       .then(d => setChunks(d.total_chunks))
       .catch(() => {});
 
     const interval = setInterval(() => {
-      fetch('http://localhost:8000/stats')
+      fetch('${API}/stats')
         .then(r => r.json())
         .then(d => setChunks(d.total_chunks))
         .catch(() => {});

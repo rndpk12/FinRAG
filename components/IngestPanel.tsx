@@ -8,6 +8,7 @@ export default function IngestPanel({ onClose }: { onClose: () => void }) {
   const [status, setStatus] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const API = process.env.NEXT_PUBLIC_API_URL;
 
   async function ingestUrl() {
     if (!url.trim()) return;
@@ -16,7 +17,7 @@ export default function IngestPanel({ onClose }: { onClose: () => void }) {
     setError(null);
 
     try {
-      const res = await fetch('http://localhost:8000/ingest/url', {
+      const res = await fetch('${API}/ingest/url', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ url: url.trim(), label: label.trim() }),
