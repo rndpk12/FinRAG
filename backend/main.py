@@ -29,6 +29,8 @@ from backend.storage.chat_store import (
     clear_chat
 )
 
+import os
+
 # =========================================
 # FastAPI App
 # =========================================
@@ -153,6 +155,8 @@ async def chat_stream(request: ChatRequest):
                     )
                 )
 
+                conn.commit()
+
         # ---------------------------------
         # Save Memory
         # ---------------------------------
@@ -246,6 +250,8 @@ Current Question:
                             full_response
                         )
                     )
+
+                    conn.commit()
 
             # ---------------------------------
             # Save Memory
@@ -417,3 +423,19 @@ def delete_history(session_id: str):
     return {
         "message": "Chat cleared"
     }
+
+# =========================================
+# Render PORT Fix
+# =========================================
+
+if __name__ == "__main__":
+
+    import uvicorn
+
+    port = int(os.environ.get("PORT", 10000))
+
+    uvicorn.run(
+        "backend.main:app",
+        host="0.0.0.0",
+        port=port
+    )
