@@ -68,7 +68,7 @@ async def startup():
 
     print("\nInitializing database...")
 
-    init_db()
+    #init_db()
 
     print("Database initialized successfully")
     print("FinRAG backend ready.\n")
