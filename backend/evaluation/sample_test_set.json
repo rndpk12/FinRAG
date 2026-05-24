@@ -1,0 +1,23 @@
+[
+  {
+    "question": "What was Apple's total revenue in fiscal year 2023?",
+    "ground_truth": "Apple reported total net sales of $383.3 billion in fiscal year 2023.",
+    "ground_truth_contexts": [
+      "Apple Inc. reported total net sales of $383.3 billion for the fiscal year ended September 30, 2023."
+    ]
+  },
+  {
+    "question": "What are the main risk factors mentioned in Tesla's 10-K?",
+    "ground_truth": "Tesla's key risk factors include competition in the EV market, supply chain disruptions, regulatory changes, and dependence on key personnel.",
+    "ground_truth_contexts": [
+      "Risk factors include intense competition in the electric vehicle market, potential supply chain disruptions affecting battery production, regulatory uncertainty across global markets."
+    ]
+  },
+  {
+    "question": "What is the Federal Reserve's stance on interest rates?",
+    "ground_truth": "The Federal Reserve has maintained higher interest rates to combat inflation, with the federal funds rate target range at 5.25%-5.50%.",
+    "ground_truth_contexts": [
+      "The Federal Open Market Committee voted to maintain the target range for the federal funds rate at 5.25 to 5.50 percent."
+    ]
+  }
+]

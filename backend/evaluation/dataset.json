@@ -1,0 +1,26 @@
+[
+  {
+    "question": "What is inflation?",
+    "expected_keywords": [
+      "prices",
+      "purchasing power",
+      "inflation"
+    ]
+  },
+  {
+    "question": "What are risks in stock markets?",
+    "expected_keywords": [
+      "volatility",
+      "risk",
+      "market"
+    ]
+  },
+  {
+    "question": "How do interest rates affect investments?",
+    "expected_keywords": [
+      "interest rates",
+      "investments",
+      "borrowing"
+    ]
+  }
+]
