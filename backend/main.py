@@ -4,7 +4,7 @@ from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 import backend.auth.auth
 
-from groq import Groq
+#from groq import Groq
 
 from backend.config import settings
 
@@ -15,11 +15,11 @@ from backend.database.db import (
 
 #from backend.retrieval.retriever import retrieve
 
-from backend.generation.generator_groq import (
-    generate_stream
-)
+#from backend.generation.generator_groq import (
+#    generate_stream
+#)
 
-from backend.retrieval.memory import memory
+#from backend.retrieval.memory import memory
 
 from backend.auth.auth import (
     router as auth_router
@@ -89,9 +89,9 @@ async def startup():
 # Groq Client
 # =========================================
 
-client = Groq(
-    api_key=settings.groq_api_key
-)
+#client = Groq(
+#   api_key=settings.groq_api_key
+#)
 
 # =========================================
 # Request Model
@@ -135,13 +135,9 @@ async def health():
 @app.post("/chat-stream")
 async def chat_stream(request: ChatRequest):
 
-    try:
-
-        print("\n==========================")
-        print("NEW STREAM CHAT REQUEST")
-        print("==========================")
-
-        print("Query:", request.query)
+    return {
+        "answer": "FinRAG deployed successfully"
+    }
 
         # =========================================
         # Retrieve Context
