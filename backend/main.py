@@ -13,7 +13,7 @@ from backend.database.db import (
     get_db
 )
 
-from backend.retrieval.retriever import retrieve
+#from backend.retrieval.retriever import retrieve
 
 from backend.generation.generator_groq import (
     generate_stream
@@ -147,9 +147,7 @@ async def chat_stream(request: ChatRequest):
         # Retrieve Context
         # =========================================
 
-        retrieved_chunks = retrieve(
-            query=request.query
-        )
+        retrieved_chunks = []
 
         print(f"Retrieved {len(retrieved_chunks)} chunks")
 
@@ -204,9 +202,7 @@ async def chat_stream(request: ChatRequest):
         # Retrieve Context
         # =========================================
 
-        retrieved_chunks = retrieve(
-            query=request.query
-        )
+        retrieved_chunks = []
 
         print(f"Retrieved {len(retrieved_chunks)} chunks")
 
