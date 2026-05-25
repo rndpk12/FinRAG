@@ -3,10 +3,15 @@ import re
 from pathlib import Path
 from dataclasses import dataclass, field
 from typing import List
+
 import requests
 from bs4 import BeautifulSoup
 import pypdf
 
+
+# =========================================
+# Raw Document
+# =========================================
 
 @dataclass
 class RawDocument:
@@ -14,113 +19,237 @@ class RawDocument:
     metadata: dict = field(default_factory=dict)
 
     def content_hash(self) -> str:
-        return hashlib.sha256(self.content.encode()).hexdigest()
+        return hashlib.sha256(
+            self.content.encode()
+        ).hexdigest()
 
+
+# =========================================
+# PDF Loader
+# =========================================
 
 def load_pdf(file_path: str) -> List[RawDocument]:
-    """Load a PDF file — works for SEC filings and analyst reports."""
+    """
+    Load PDF files such as:
+    - SEC filings
+    - Earnings reports
+    - Analyst reports
+    """
+
     docs = []
+
     path = Path(file_path)
+
     reader = pypdf.PdfReader(file_path)
 
-    for i, page in enumerate(reader.pages):
-        text = page.extract_text() or ""
+    total_pages = len(reader.pages)
+
+    for page_num, page in enumerate(reader.pages):
+
+        try:
+            text = page.extract_text() or ""
+
+        except Exception as e:
+
+            print(f"Failed to read page {page_num + 1}: {e}")
+
+            continue
+
         text = _clean_text(text)
+
+        # Skip empty/noisy pages
         if len(text.strip()) < 50:
             continue
-        docs.append(RawDocument(
-            content=text,
-            metadata={
-                "source": path.name,
-                "source_type": "pdf",
-                "page": i + 1,
-                "total_pages": len(reader.pages),
-                "file_path": str(path),
-            }
-        ))
+
+        docs.append(
+            RawDocument(
+                content=text,
+                metadata={
+                    "source": path.name,
+                    "source_type": "pdf",
+                    "page": page_num + 1,
+                    "total_pages": total_pages,
+                    "file_path": str(path),
+                }
+            )
+        )
+
     print(f"Loaded {len(docs)} pages from {path.name}")
+
     return docs
 
 
-def load_url(url: str, label: str = "") -> List[RawDocument]:
+# =========================================
+# URL Loader
+# =========================================
+
+def load_url(
+    url: str,
+    label: str = ""
+) -> List[RawDocument]:
     """
-    Load a web article — works for financial news.
-    Note: some sites (Yahoo Finance, Bloomberg) block scrapers.
-    Use Reuters, BBC Business, or SEC EDGAR for reliable results.
+    Load financial news articles or web pages.
     """
+
     headers = {
-        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
-                      "AppleWebKit/537.36 (KHTML, like Gecko) "
-                      "Chrome/120.0.0.0 Safari/537.36",
-        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "User-Agent": (
+            "Mozilla/5.0 "
+            "(Macintosh; Intel Mac OS X 10_15_7) "
+            "AppleWebKit/537.36 "
+            "(KHTML, like Gecko) "
+            "Chrome/120.0.0.0 Safari/537.36"
+        ),
+        "Accept": (
+            "text/html,application/xhtml+xml,"
+            "application/xml;q=0.9,*/*;q=0.8"
+        ),
         "Accept-Language": "en-US,en;q=0.5",
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=15)
+
+        response = requests.get(
+            url,
+            headers=headers,
+            timeout=15
+        )
+
         response.raise_for_status()
+
     except requests.exceptions.HTTPError as e:
-        raise ValueError(f"Failed to fetch URL ({e}). Try Reuters or BBC Business instead.")
+
+        raise ValueError(
+            f"Failed to fetch URL ({e})"
+        )
+
     except requests.exceptions.Timeout:
-        raise ValueError(f"Request timed out for {url}")
 
-    soup = BeautifulSoup(response.text, "html.parser")
+        raise ValueError(
+            f"Request timed out for {url}"
+        )
 
-    # Remove noise
-    for tag in soup(["script", "style", "nav", "footer", "header",
-                     "aside", "iframe", "noscript", "form"]):
+    soup = BeautifulSoup(
+        response.text,
+        "html.parser"
+    )
+
+    # Remove noisy tags
+    for tag in soup([
+        "script",
+        "style",
+        "nav",
+        "footer",
+        "header",
+        "aside",
+        "iframe",
+        "noscript",
+        "form",
+    ]):
         tag.decompose()
 
     title = soup.find("title")
-    title_text = title.get_text(strip=True) if title else label or url
 
-    # Extract meaningful paragraphs
-    paragraphs = soup.find_all(["p", "h1", "h2", "h3", "li", "article"])
+    title_text = (
+        title.get_text(strip=True)
+        if title
+        else label or url
+    )
+
+    paragraphs = soup.find_all([
+        "p",
+        "h1",
+        "h2",
+        "h3",
+        "li",
+        "article",
+    ])
+
     content = "\n".join(
         p.get_text(strip=True)
         for p in paragraphs
-        if len(p.get_text(strip=True)) > 30  # skip tiny fragments
+        if len(p.get_text(strip=True)) > 30
     )
+
     content = _clean_text(content)
 
     if len(content.strip()) < 100:
+
         raise ValueError(
-            f"Too little content extracted from {url}. "
-            f"This site may block scrapers. "
-            f"Try: https://www.reuters.com/finance or https://www.bbc.com/news/business"
+            f"Too little content extracted from {url}"
         )
 
-    return [RawDocument(
-        content=content,
-        metadata={
-            "source": title_text,
-            "source_type": "news_article",
-            "url": url,
-        }
-    )]
+    return [
+        RawDocument(
+            content=content,
+            metadata={
+                "source": title_text,
+                "source_type": "news_article",
+                "url": url,
+            }
+        )
+    ]
 
 
-def load_text(file_path: str, source_type: str = "research_report") -> List[RawDocument]:
-    """Load a plain text or markdown file."""
+# =========================================
+# Text Loader
+# =========================================
+
+def load_text(
+    file_path: str,
+    source_type: str = "research_report"
+) -> List[RawDocument]:
+
     path = Path(file_path)
-    content = path.read_text(encoding="utf-8")
+
+    content = path.read_text(
+        encoding="utf-8"
+    )
+
     content = _clean_text(content)
 
     if len(content.strip()) < 50:
-        raise ValueError(f"File {path.name} is empty or too short to index.")
 
-    return [RawDocument(
-        content=content,
-        metadata={
-            "source": path.name,
-            "source_type": source_type,
-            "file_path": str(path),
-        }
-    )]
+        raise ValueError(
+            f"{path.name} is empty or too short."
+        )
 
+    return [
+        RawDocument(
+            content=content,
+            metadata={
+                "source": path.name,
+                "source_type": source_type,
+                "file_path": str(path),
+            }
+        )
+    ]
+
+
+# =========================================
+# Text Cleaning
+# =========================================
 
 def _clean_text(text: str) -> str:
-    text = re.sub(r'\n{3,}', '\n\n', text)
-    text = re.sub(r'[ \t]{2,}', ' ', text)
-    text = re.sub(r'[^\x20-\x7E\n]', ' ', text)
+
+    # Remove excessive newlines
+    text = re.sub(
+        r"\n{3,}",
+        "\n\n",
+        text
+    )
+
+    # Remove extra spaces
+    text = re.sub(
+        r"[ \t]{2,}",
+        " ",
+        text
+    )
+
+    # Remove weird unicode artifacts
+    text = re.sub(
+        r"[^\x20-\x7E\n]",
+        " ",
+        text
+    )
+
     return text.strip()

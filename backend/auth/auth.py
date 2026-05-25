@@ -11,7 +11,7 @@ from backend.auth.security import (
     create_access_token
 )
 
-from backend.db import get_db
+from backend.database.db import get_db
 
 router = APIRouter()
 

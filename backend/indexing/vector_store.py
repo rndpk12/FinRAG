@@ -2,9 +2,9 @@ import hashlib
 import json
 from typing import List
 
-from backend.db import get_db
+from backend.database.db import get_db
 from backend.config import settings
-from backend.models import Chunk
+from backend.database.models import Chunk
 
 
 # =========================================
@@ -72,6 +72,10 @@ def dense_search(
 
     k = top_k or settings.top_k_dense
 
+    embedding_str = "[" + ",".join(
+        str(x) for x in query_embedding
+    ) + "]"
+
     with get_db() as conn:
 
         with conn.cursor() as cur:
@@ -81,11 +85,19 @@ def dense_search(
                 SELECT
                     id,
                     content,
-                    metadata
+                    metadata,
+                    embedding <=> %s::vector AS distance
+
                 FROM documents
+
+                ORDER BY distance ASC
+
                 LIMIT %s
                 """,
-                (k,)
+                (
+                    embedding_str,
+                    k
+                )
             )
 
             rows = cur.fetchall()
@@ -100,13 +112,13 @@ def dense_search(
             metadata=row["metadata"]
         )
 
+        chunk.score = 1 - float(row["distance"])
+
         chunk.retrieval_method = "dense"
 
         chunks.append(chunk)
 
     return chunks
-
-
 # =========================================
 # Count
 # =========================================

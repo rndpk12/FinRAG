@@ -1,7 +1,7 @@
 import hashlib
 from typing import List
 from backend.ingest.chunker import Chunk
-from backend.db import get_db
+from backend.database.db import get_db
 
 
 def deduplicate_chunks(chunks: List[Chunk]) -> List[Chunk]:

@@ -6,7 +6,7 @@ from backend.indexing.embedder import embed_chunks
 from backend.indexing.vector_store import insert_chunks
 
 
-DATA_DIR = Path("backend/data/financial_reports")
+DATA_DIR = Path("backend/data")
 
 
 def main():

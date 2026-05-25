@@ -3,7 +3,7 @@ import re
 from pathlib import Path
 from typing import List
 from rank_bm25 import BM25Okapi
-from backend.db import get_db
+from backend.database.db import get_db
 from backend.config import settings
 
 INDEX_PATH = Path("bm25_index.pkl")

@@ -1,11 +1,14 @@
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
-import fastapi.middleware.cors
-
 from pydantic import BaseModel
+import backend.auth.auth
 
-from backend.db import (
+from groq import Groq
+
+from backend.config import settings
+
+from backend.database.db import (
     init_db,
     get_db
 )
@@ -40,6 +43,15 @@ app = FastAPI(
     title="FinRAG API",
     version="1.0.0"
 )
+app.include_router(
+    auth_router,
+    prefix="/auth",
+    tags=["Authentication"]
+)
+
+# =========================================
+# CORS
+# =========================================
 
 app.add_middleware(
     CORSMiddleware,
@@ -53,22 +65,10 @@ app.add_middleware(
 )
 
 # =========================================
-# CORS
-# =========================================
-
-app.add_middleware(
-    fastapi.middleware.cors.CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# =========================================
 # Routers
 # =========================================
 
-app.include_router(auth_router)
+app.include_router(backend.auth.auth.router)
 app.include_router(upload_router)
 
 # =========================================
@@ -86,6 +86,14 @@ async def startup():
     print("FinRAG backend ready.\n")
 
 # =========================================
+# Groq Client
+# =========================================
+
+client = Groq(
+    api_key=settings.groq_api_key
+)
+
+# =========================================
 # Request Model
 # =========================================
 
@@ -93,7 +101,7 @@ class ChatRequest(BaseModel):
 
     query: str
 
-    session_id: str | None = None
+    session_id: str | None = "default"
 
     selected_documents: list[str] = []
 
@@ -121,103 +129,101 @@ async def health():
     }
 
 # =========================================
-# Streaming Chat Endpoint
+# Chat Endpoint
 # =========================================
-
-# =========================================
-# Streaming Chat Endpoint
-# =========================================
-
-from groq import Groq
-from backend.config import settings
-
-client = Groq(
-    api_key=settings.groq_api_key
-)
 
 @app.post("/chat-stream")
 async def chat_stream(request: ChatRequest):
 
     try:
 
-        print("\n============================")
-        print("NEW CHAT REQUEST")
-        print("============================")
+        print("\n==========================")
+        print("NEW STREAM CHAT REQUEST")
+        print("==========================")
 
         print("Query:", request.query)
-        print("Selected Docs:", request.selected_documents)
 
         # =========================================
         # Retrieve Context
         # =========================================
 
         retrieved_chunks = retrieve(
-            query=request.query,
-            selected_documents=request.selected_documents
+            query=request.query
         )
 
         print(f"Retrieved {len(retrieved_chunks)} chunks")
 
         # =========================================
-        # Build Context
+        # Streaming Generator
         # =========================================
 
-        context = "\n\n".join([
-            chunk.content
-            for chunk in retrieved_chunks
-        ])
+        def stream_generator():
 
-        if not context.strip():
-            context = "No relevant financial documents found."
+            full_answer = ""
+
+            for chunk in generate_stream(
+                query=request.query,
+                chunks=retrieved_chunks
+            ):
+
+                full_answer += chunk
+
+                yield chunk
+
+            # =====================================
+            # Save Conversation AFTER stream ends
+            # =====================================
+
+            if request.session_id:
+
+                memory.add_message(
+                    request.session_id,
+                    "user",
+                    request.query
+                )
+
+                memory.add_message(
+                    request.session_id,
+                    "assistant",
+                    full_answer
+                )
+
+        return StreamingResponse(
+            stream_generator(),
+            media_type="text/plain"
+        )
+
+    except Exception as e:
+
+        print("STREAM CHAT ERROR:", e)
+
+        return {
+            "answer": f"Error: {str(e)}"
+        }
+        # =========================================
+        # Retrieve Context
+        # =========================================
+
+        retrieved_chunks = retrieve(
+            query=request.query
+        )
+
+        print(f"Retrieved {len(retrieved_chunks)} chunks")
 
         # =========================================
-        # Conversation Memory
+        # Generate Response
         # =========================================
 
-        history = memory.get_history(
-    request.session_id
-)
+        answer = ""
+
+        for chunk in generate_stream(
+            query=request.query,
+            chunks=retrieved_chunks
+        ):
+            answer += chunk
 
         # =========================================
-        # Final Prompt
-        # =========================================
-
-        prompt = f"""
-You are FinRAG, an elite AI financial research assistant.
-
-You MUST answer ONLY using the provided financial context.
-
-If the answer is not present in the context:
-say:
-"I could not find that information in the uploaded documents."
-
-====================
-Conversation History
-====================
-
-{history}
-
-====================
-Financial Context
-====================
-
-{context}
-
-====================
-User Question
-====================
-
-{request.query}
-
-====================
-Answer
-====================
-"""
-
-        print("\nPROMPT READY\n")
-
-        # =========================================
-        # Store User Message
+        # Save Conversation
         # =========================================
 
         if request.session_id:
@@ -228,55 +234,28 @@ Answer
                 request.query
             )
 
+            memory.add_message(
+                request.session_id,
+                "assistant",
+                answer
+            )
+
         # =========================================
-        # Streaming Generator
+        # Return Response
         # =========================================
 
-        async def response_generator():
-
-            full_response = ""
-
-            try:
-
-                for token in generate_stream(
-    prompt,
-    retrieved_chunks
-):
-
-                    full_response += token
-
-                    yield token
-
-                # save assistant response
-                if request.session_id:
-
-                    memory.add_message(
-                        request.session_id,
-                        "assistant",
-                        full_response
-                    )
-
-            except Exception as e:
-
-                print("Streaming Error:", e)
-
-                yield f"\nError: {str(e)}"
-
-        return StreamingResponse(
-            response_generator(),
-            media_type="text/plain"
-        )
+        return {
+            "answer": answer
+        }
 
     except Exception as e:
 
         print("CHAT ERROR:", e)
 
-        return StreamingResponse(
-            iter([
-                f"Server Error: {str(e)}"
-            ]),
-            media_type="text/plain"
-        )
+        return {
+            "answer": f"Error: {str(e)}"
+        }
+
 # =========================================
 # Chat History Endpoint
 # =========================================
@@ -343,9 +322,7 @@ async def get_sessions(user_id: str):
             "preview": row["preview"][:60]
             if row["preview"]
             else "New Chat",
-            "updated_at": row[
-                "last_message_time"
-            ]
+            "updated_at": row["last_message_time"]
         })
 
     return {
@@ -367,8 +344,7 @@ def get_documents():
                 SELECT DISTINCT
                     metadata->>'source' AS source
                 FROM documents
-                WHERE metadata->>'source'
-                    IS NOT NULL
+                WHERE metadata->>'source' IS NOT NULL
                 ORDER BY source;
             """)
 
@@ -412,5 +388,6 @@ if __name__ == "__main__":
     uvicorn.run(
         "backend.main:app",
         host="0.0.0.0",
-        port=port
+        port=port,
+        reload=True
     )

@@ -12,7 +12,7 @@ from typing import List
 
 from backend.retrieval.retriever import retrieve
 from backend.generation.generator_groq import generate
-from backend.db import get_db
+from backend.database.db import get_db
 
 
 def run_evaluation(test_set_path: str) -> dict:

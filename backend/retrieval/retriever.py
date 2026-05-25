@@ -6,13 +6,62 @@ from backend.indexing.bm25_index import bm25_index
 
 from backend.retrieval.query_expander import expand_query
 
-from backend.db import get_db
-from backend.models import Chunk
+from backend.database.db import get_db
+from backend.database.models import Chunk
+
+GREETING_QUERIES = {
+    "hi",
+    "hello",
+    "hey",
+    "good morning",
+    "good evening",
+    "how are you",
+    "who are you"
+}
+
+# =========================================
+# Context Formatter
+# =========================================
+
+def build_context(chunks: List[Chunk]) -> str:
+
+    context = ""
+
+    for chunk in chunks:
+
+        source = (
+            chunk.metadata.get("source", "Unknown")
+            if chunk.metadata else "Unknown"
+        )
+
+        page = (
+            chunk.metadata.get("page", "N/A")
+            if chunk.metadata else "N/A"
+        )
+
+        context += f"""
+
+SOURCE: {source}
+PAGE: {page}
+
+CONTENT:
+{chunk.content}
+
+----------------------------------------
+"""
+
+    return context.strip()
 
 
 def retrieve(query, selected_documents=None, top_k=5):
 
     print(f"\nReceived query: {query}")
+
+    normalized_query = query.lower().strip()
+
+    if normalized_query in GREETING_QUERIES:
+        print("Greeting detected → skipping retrieval")
+        return []
 
     # =========================================
     # Expand Query
@@ -72,7 +121,10 @@ def retrieve(query, selected_documents=None, top_k=5):
             # Merge
             # -----------------------------------
 
-            if chunk.id not in merged:
+            if (
+    chunk.id not in merged
+    and len(chunk.content.strip()) > 100
+):
 
                 chunk.retrieval_method = "dense"
 
@@ -131,7 +183,10 @@ def retrieve(query, selected_documents=None, top_k=5):
                 # Merge
                 # -----------------------------------
 
-                if row["id"] not in merged:
+                if (
+    row["id"] not in merged
+    and len(row["content"].strip()) > 100
+):
 
                     chunk = Chunk(
                         id=row["id"],
@@ -154,9 +209,12 @@ def retrieve(query, selected_documents=None, top_k=5):
     # =========================================
 
     final_chunks.sort(
-        key=lambda x: len(x.content),
-        reverse=True
-    )
+    key=lambda x: (
+        x.retrieval_method == "dense",
+        len(x.content)
+    ),
+    reverse=True
+)
 
     print(f"\nFinal merged chunks: {len(final_chunks)}")
 
